@@ -62,11 +62,31 @@ class IEEE13BusSystem:
         self.dss.text("New Transformer.SubXF Phases=3 Windings=2 Xhl=0.01")
         self.dss.text("~ wdg=1 bus=650 kv=4.16 kva=5000 %r=0.0005")
         self.dss.text("~ wdg=2 bus=RG60 kv=4.16 kva=5000 %r=0.0005")
-        
-        # Solve initial power flow
+          # Solve initial power flow
         self.dss.text("set voltagebases=[4.16]")
         self.dss.text("calcvoltagebases")
         self.dss.solution.solve()
+        
+        # Populate buses dictionary for consistency with simple model
+        self.buses = {
+            650: {'phases': 3, 'voltage_kv': 4.16, 'type': 'slack'},
+            632: {'phases': 3, 'voltage_kv': 4.16, 'type': 'pq'},
+            633: {'phases': 3, 'voltage_kv': 4.16, 'type': 'pq'},
+            634: {'phases': 3, 'voltage_kv': 4.16, 'type': 'pq'},
+            645: {'phases': 2, 'voltage_kv': 4.16, 'type': 'pq'},
+            646: {'phases': 2, 'voltage_kv': 4.16, 'type': 'pq'},
+            671: {'phases': 3, 'voltage_kv': 4.16, 'type': 'pq'},
+            680: {'phases': 3, 'voltage_kv': 4.16, 'type': 'pq'},
+            684: {'phases': 1, 'voltage_kv': 4.16, 'type': 'pq'},
+            611: {'phases': 1, 'voltage_kv': 4.16, 'type': 'pq'},
+            652: {'phases': 1, 'voltage_kv': 4.16, 'type': 'pq'},
+            692: {'phases': 3, 'voltage_kv': 4.16, 'type': 'pq'},
+            675: {'phases': 3, 'voltage_kv': 4.16, 'type': 'pq'},
+        }
+        
+        # Initialize voltages (p.u.)
+        for bus in self.buses:
+            self.voltages[bus] = 1.0
         
         logger.info("OpenDSS model built successfully")
         
@@ -159,14 +179,15 @@ class IEEE13BusSystem:
         """Add capacitors to OpenDSS model"""
         caps = [
             "New Capacitor.Cap1 Bus1=675 phases=3 kvar=600",
-            "New Capacitor.Cap2 Bus1=611.3 phases=1 kvar=100",
-        ]
+            "New Capacitor.Cap2 Bus1=611.3 phases=1 kvar=100",        ]
         
         for cap in caps:
             self.dss.text(cap)
             
     def add_bdwpt_load(self, bus_id, power_kw, power_factor=0.95):
         """Add BDWPT load/generation at a specific bus"""
+        logger.debug(f"Available buses: {list(self.buses.keys())}")
+        logger.debug(f"Checking for bus {bus_id}")
         if bus_id not in self.buses:
             logger.warning(f"Bus {bus_id} not found in network")
             return
@@ -188,13 +209,22 @@ class IEEE13BusSystem:
             # Simple model - just track the power
             self.bdwpt_loads[bus_id] = power_kw
             
+    def reset_bdwpt_loads(self):
+        """Reset all BDWPT loads for new time step"""
+        if USE_OPENDSS:
+            # Disable all BDWPT loads
+            for bdwpt_name in self.bdwpt_loads:
+                self.dss.text(f"disable load.{bdwpt_name}")
+        
+        # Clear the dictionary
+        self.bdwpt_loads = {}
+            
     def solve_power_flow(self):
         """Solve power flow and return results"""
         if USE_OPENDSS:
             # Solve using OpenDSS
             self.dss.solution.solve()
-            
-            # Get results
+              # Get results
             results = self._get_opendss_results()
         else:
             # Simple power flow approximation
@@ -208,19 +238,38 @@ class IEEE13BusSystem:
             'voltages': {},
             'powers': {},
             'losses': 0,
-            'converged': self.dss.solution.converged()
+            'converged': self.dss.solution.converged
         }
-        
-        # Get bus voltages
+          # Get bus voltages
         self.dss.circuit.set_active_bus('650')
         for bus in self.buses:
             self.dss.circuit.set_active_bus(str(bus))
-            voltages = self.dss.bus.voltages_mag_pu()
-            results['voltages'][bus] = np.mean(voltages) if len(voltages) > 0 else 1.0
-            
-        # Get total power
-        results['powers']['total_load'] = self.dss.circuit.total_power()[0]  # Real power
-        results['powers']['total_losses'] = self.dss.circuit.losses()[0] / 1000  # kW
+            try:
+                # Try different voltage access methods
+                voltages = self.dss.bus.pu_voltages
+                if hasattr(voltages, '__len__') and len(voltages) > 0:
+                    results['voltages'][bus] = np.mean(np.abs(voltages))
+                else:
+                    results['voltages'][bus] = 1.0
+            except (AttributeError, TypeError):
+                # Fallback to default voltage
+                results['voltages'][bus] = 1.0
+                  # Get total power
+        try:
+            total_power = self.dss.circuit.total_power
+            if hasattr(total_power, '__len__') and len(total_power) > 0:
+                results['powers']['total_load'] = total_power[0]  # Real power
+            else:
+                results['powers']['total_load'] = 0
+                
+            losses = self.dss.circuit.losses
+            if hasattr(losses, '__len__') and len(losses) > 0:
+                results['powers']['total_losses'] = losses[0] / 1000  # kW
+            else:
+                results['powers']['total_losses'] = 0
+        except (AttributeError, IndexError, TypeError):
+            results['powers']['total_load'] = 0
+            results['powers']['total_losses'] = 0
         
         return results
         

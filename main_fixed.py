@@ -1,4 +1,4 @@
-# main.py - Main entry point for the BDWPT simulation
+# main.py - Main entry point for the simulation
 import os
 import sys
 import time
@@ -130,7 +130,6 @@ class BDWPTSimulationPlatform:
         logger.info("\nAnalyzing simulation results...")
         
         kpis = self.results_analyzer.calculate_kpis(all_results)
-        
         # Log key findings
         logger.info("\n=== KEY PERFORMANCE INDICATORS ===")
         for scenario, metrics in kpis.items():
@@ -154,7 +153,8 @@ class BDWPTSimulationPlatform:
         
         # 3. KPI comparison charts
         self.visualizer.plot_kpi_comparison(kpis)
-          # 4. Heatmap of BDWPT power exchange
+        
+        # 4. Heatmap of BDWPT power exchange
         self.visualizer.plot_bdwpt_heatmap(all_results)
         
         logger.info("Visualizations saved to output directory")
@@ -162,9 +162,7 @@ class BDWPTSimulationPlatform:
     def save_results(self, results, scenario_name):
         """Save simulation results to CSV files"""
         try:
-            # Clean scenario name for filesystem compatibility
-            clean_name = scenario_name.replace("%", "pct").replace(" ", "_")
-            output_dir = os.path.join(self.config.output_dir, "results", clean_name)
+            output_dir = os.path.join(self.config.output_dir, "results", scenario_name)
             os.makedirs(output_dir, exist_ok=True)
             logger.info(f"Saving results to: {output_dir}")
             

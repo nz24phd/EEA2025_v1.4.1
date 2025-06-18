@@ -136,17 +136,16 @@ class BDWPTAgent:
             voltage_score = (voltage_pu - params['voltage_high_threshold']) / 0.05
         elif voltage_pu < params['voltage_low_threshold']:
             voltage_score = (voltage_pu - params['voltage_low_threshold']) / 0.05
-            
-        # Tariff score (positive for high tariff, negative for low)
+              # Tariff score (positive for high tariff, negative for low)
         tariff_score = 0
-        if tariff > params['tariff_high']:
+        if tariff > params['tariff_high_threshold']:
             tariff_score = 1.0
-        elif tariff < params['tariff_low']:
+        elif tariff < params['tariff_low_threshold']:
             tariff_score = -1.0
         else:
             # Linear interpolation
-            tariff_range = params['tariff_high'] - params['tariff_low']
-            tariff_score = 2 * (tariff - params['tariff_low']) / tariff_range - 1
+            tariff_range = params['tariff_high_threshold'] - params['tariff_low_threshold']
+            tariff_score = 2 * (tariff - params['tariff_low_threshold']) / tariff_range - 1
             
         # SoC score (affects willingness to charge/discharge)
         soc_mid = 0.65  # Target SoC
