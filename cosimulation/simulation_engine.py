@@ -112,6 +112,9 @@ class CoSimulationEngine:
               # Get vehicles at this node
             vehicles = self.traffic_model.get_bdwpt_vehicles_by_node(node)
             
+            if vehicles:
+                logger.info(f"Found {len(vehicles)} BDWPT-equipped vehicles at node {node}")
+
             for vehicle in vehicles:
                 if vehicle['id'] in self.bdwpt_agents:
                     agent = self.bdwpt_agents[vehicle['id']]
@@ -135,14 +138,11 @@ class CoSimulationEngine:
                     
             bdwpt_powers[node] = total_power
             
-        logger.info(f"Calculated BDWPT powers at hour {hour}: {bdwpt_powers}")
+        logger.debug(f"Calculated BDWPT powers at hour {hour}: {bdwpt_powers}")
         return bdwpt_powers
         
     def _update_grid_loads(self, hour, load_profile_type, bdwpt_powers):
         """Update power grid loads including BDWPT"""
-        # Reset BDWPT loads from previous time step
-        self.power_grid.reset_bdwpt_loads()
-        
         # Get base load multiplier from profile
         time_minutes = hour * 60
         day_type = 'weekday' if 'Weekday' in load_profile_type else 'weekend'
@@ -156,13 +156,12 @@ class CoSimulationEngine:
                 logger.error(f"Error getting load profile for bus {bus}: {e}")
                 logger.error(f"bus type: {type(bus)}, time_minutes type: {type(time_minutes)}, day_type: {day_type}")
                 raise e
-            # This would update the load in OpenDSS or simple model
             
-        # Add BDWPT loads/generation
-        if any(bdwpt_powers.values()):
+        # FIX: Use the new update_bdwpt_load method
+        if any(p != 0 for p in bdwpt_powers.values()):
             logger.info(f"Updating grid with non-zero BDWPT powers: {bdwpt_powers}")
         for node, power in bdwpt_powers.items():
-            self.power_grid.add_bdwpt_load(node, power)
+            self.power_grid.update_bdwpt_load(node, power)
             
     def _collect_step_results(self, timestamp, pf_results, bdwpt_powers):
         """Collect results for current time step"""
@@ -250,97 +249,3 @@ class CoSimulationEngine:
             'summary': summary,
             'agent_stats': pd.DataFrame(agent_stats) if agent_stats else None
         }
-
-
-# cosimulation/scenarios.py
-class ScenarioManager:
-    """Manage simulation scenarios"""
-    
-    def __init__(self, config):
-        self.config = config
-        
-    def get_scenario(self, name, bdwpt_penetration):
-        """Get scenario configuration"""
-        base_scenario = self.config.scenarios.get(name, {})
-        
-        scenario = {
-            'name': name,
-            'bdwpt_penetration': bdwpt_penetration,
-            'day_type': 'weekday' if 'Weekday' in name else 'weekend',
-            'load_profile': base_scenario.get('load_profile', 'weekday'),
-            'traffic_multiplier': base_scenario.get('traffic_multiplier', 1.0),
-        }
-        
-        return scenario
-        
-    def get_all_scenarios(self):
-        """Get all defined scenarios"""
-        scenarios = []
-        
-        for name in self.config.scenarios:
-            for penetration in [0, 15, 40]:
-                scenarios.append(self.get_scenario(name, penetration))
-                
-        return scenarios
-
-
-# cosimulation/results_analyzer.py
-class ResultsAnalyzer:
-    """Analyze and compare simulation results"""
-    
-    def __init__(self, config):
-        self.config = config
-        
-    def calculate_kpis(self, all_results):
-        """Calculate key performance indicators for all scenarios"""
-        kpis = {}
-        
-        # Get baseline results (0% penetration)
-        baseline_results = {}
-        for key, results in all_results.items():
-            if "0%" in key:
-                scenario_type = key.replace("_0%", "")
-                baseline_results[scenario_type] = results
-                
-        # Calculate KPIs for each scenario
-        for key, results in all_results.items():
-            scenario_type = key.split("_")[0] + "_" + key.split("_")[1]
-            
-            # Get corresponding baseline
-            baseline = baseline_results.get(scenario_type)
-            if not baseline:
-                continue
-                
-            # Calculate KPIs
-            kpi = {
-                'scenario': key,
-                'peak_reduction': baseline['summary']['peak_load'] - results['summary']['peak_load'],
-                'peak_reduction_pct': ((baseline['summary']['peak_load'] - results['summary']['peak_load']) / 
-                                      baseline['summary']['peak_load'] * 100),
-                'voltage_violations': results['summary']['voltage_violations'],
-                'voltage_improvement': baseline['summary']['voltage_violations'] - results['summary']['voltage_violations'],
-                'losses': results['summary']['total_losses_kwh'],
-                'loss_reduction': baseline['summary']['total_losses_kwh'] - results['summary']['total_losses_kwh'],
-                'reverse_flow_events': results['summary']['reverse_flow_events'],
-                'energy_from_v2g': results['summary']['bdwpt_energy_discharged_kwh'],
-                'energy_to_g2v': results['summary']['bdwpt_energy_charged_kwh'],
-            }
-            
-            kpis[key] = kpi
-            
-        return kpis
-        
-    def compare_scenarios(self, results1, results2):
-        """Compare two scenarios"""
-        comparison = {}
-        
-        # Compare summary metrics
-        for metric in results1['summary']:
-            if isinstance(results1['summary'][metric], (int, float)):
-                comparison[metric] = {
-                    'scenario1': results1['summary'][metric],
-                    'scenario2': results2['summary'][metric],
-                    'difference': results2['summary'][metric] - results1['summary'][metric]
-                }
-                
-        return comparison

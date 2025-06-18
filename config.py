@@ -1,20 +1,29 @@
 # config.py
 # Configuration file for BDWPT simulation platform
 
+import os  # 确保导入os模块
 import numpy as np
 from datetime import datetime, timedelta
+
+# --- START OF FINAL FIX: Define an absolute base path ---
+# 获取此配置文件所在的目录的绝对路径
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# --- END OF FINAL FIX ---
 
 class SimulationConfig:
     """Configuration parameters for the BDWPT simulation."""
     
-    def __init__(self):        # Data directory path
-        self.data_dir = "data"
+    def __init__(self):
+        # --- START OF FINAL FIX: Build all paths from the absolute base path ---
+        # Data directory path
+        self.data_dir = os.path.join(_BASE_DIR, "data")
         
         # Output directory paths
-        self.figures_dir = "output/figures"
-        self.results_dir = "output/results"
-        self.logs_dir = "output/logs"
-        self.output_dir = "output"  # Main output directory
+        self.output_dir = os.path.join(_BASE_DIR, "output")
+        self.figures_dir = os.path.join(self.output_dir, "figures")
+        self.results_dir = os.path.join(self.output_dir, "results")
+        self.logs_dir = os.path.join(self.output_dir, "logs")
+        # --- END OF FINAL FIX ---
         
         # Simulation parameters
         self.simulation_params = {
@@ -22,7 +31,9 @@ class SimulationConfig:
             'end_time': datetime(2024, 1, 1, 23, 59),  # End at 23:59
             'time_step_minutes': 15,  # 15-minute time steps
             'day_types': ['weekday', 'weekend']
-        }        # Traffic model parameters
+        }
+        
+        # Traffic model parameters
         self.traffic_params = {
             'total_vehicles': 1000,
             'ev_penetration': 0.3,  # 30% EV penetration
@@ -35,12 +46,12 @@ class SimulationConfig:
         
         # Add time step convenience property
         self.time_step_minutes = self.simulation_params['time_step_minutes']
-          # EV parameters
+        
+        # EV parameters
         self.ev_params = {
             'initial_soc_mean': 0.7,  # 70% average initial SOC
             'initial_soc_std': 0.15,  # 15% standard deviation
             'charging_efficiency': 0.9,  # 90% charging efficiency
-            'consumption_kwh_per_km': 0.15,  # 150 Wh/km
             'energy_consumption_kwh_per_km': 0.15,  # 150 Wh/km (alias for compatibility)
             'min_soc_threshold': 0.2,  # 20% minimum SOC
             'max_soc_threshold': 0.9   # 90% maximum SOC for normal charging
@@ -82,7 +93,7 @@ class SimulationConfig:
             'bdwpt_connection_type': 'three_phase'
         }
         
-        # Scenario configuration
+        # Scenario configuration (RESTORED)
         self.scenario_params = {
             'base_case': {
                 'bdwpt_penetration': 0,
@@ -101,9 +112,11 @@ class SimulationConfig:
                 'description': '50% BDWPT penetration'
             }
         }
-          # Penetration scenarios list for easy iteration
+        
+        # Penetration scenarios list for easy iteration
         self.penetration_scenarios = [0, 15, 40]
-          # Base scenarios configuration
+        
+        # Base scenarios configuration
         self.scenarios = {
             'Weekday Peak': {
                 'load_profile': 'weekday_peak',
@@ -127,21 +140,22 @@ class SimulationConfig:
             }
         }
         
-        # Data file paths
+        # Data file paths (RESTORED and FIXED)
         self.data_paths = {
-            'ev_registrations': 'data/ev_registrations.csv',
-            'road_network': 'data/wellington_roads.json',
-            'load_profiles': 'data/load_profiles.csv',
-            'weather_data': 'data/weather_data.csv'
+            'ev_registrations': os.path.join(self.data_dir, 'ev_registrations.csv'),
+            'road_network': os.path.join(self.data_dir, 'wellington_roads.json'),
+            'load_profiles': os.path.join(self.data_dir, 'load_profiles.csv'),
+            'weather_data': os.path.join(self.data_dir, 'weather_data.csv')
         }
         
-        # Output paths
+        # Output paths (RESTORED and FIXED)
         self.output_paths = {
-            'results': 'output/results/',
-            'figures': 'output/figures/',
-            'logs': 'output/logs/'
+            'results': self.results_dir,
+            'figures': self.figures_dir,
+            'logs': self.logs_dir
         }
-          # Logging configuration
+        
+        # Logging configuration (RESTORED)
         self.logging_config = {
             'level': 'DEBUG',
             'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -172,33 +186,21 @@ class SimulationConfig:
 
     def get_load_profile(self, node_id, time_minutes, day_type):
         """Get load profile for a specific node and time."""
-        # Base load varies by time of day and day type
         hour = time_minutes // 60
         
-        # Weekend vs weekday profiles
         if day_type == 'weekend':
-            # Weekend has more consistent load throughout the day
             base_factor = 0.6 + 0.3 * np.sin(2 * np.pi * (hour - 8) / 24)
         else:
-            # Weekday has morning and evening peaks
             morning_peak = 0.8 * np.exp(-((hour - 8) ** 2) / 8)
             evening_peak = 1.0 * np.exp(-((hour - 18) ** 2) / 12)
             base_factor = 0.4 + morning_peak + evening_peak
         
-        # Node-specific scaling factors
         node_factors = {
-            632: 1.2,  # Residential area
-            633: 0.8,  # Light commercial
-            634: 1.0,  # Mixed use
-            645: 0.9,  # Residential
-            646: 1.1,  # Commercial
-            671: 0.7,  # Industrial
-            675: 1.3,  # Dense residential
-            680: 0.6   # Light industrial
+            632: 1.2, 633: 0.8, 634: 1.0, 645: 0.9, 646: 1.1,
+            671: 0.7, 675: 1.3, 680: 0.6
         }
-        
         node_factor = node_factors.get(node_id, 1.0)
-        base_load_kw = 100  # Base load per node
+        base_load_kw = 100
         
         return base_load_kw * base_factor * node_factor
 
@@ -213,32 +215,24 @@ class SimulationConfig:
 
     def get_tariff_at_hour(self, hour):
         """Get electricity tariff rate for a specific hour."""
-        # Simple time-of-use tariff structure (cents/kWh)
         if 6 <= hour < 10 or 17 <= hour < 21:
-            # Peak hours
-            return 25.0  # 25 cents/kWh
+            return 25.0
         elif 10 <= hour < 17:
-            # Shoulder hours
-            return 18.0  # 18 cents/kWh
+            return 18.0
         else:
-            # Off-peak hours (night and early morning)
-            return 12.0  # 12 cents/kWh
+            return 12.0
 
     def validate_config(self):
         """Validate configuration parameters."""
-        # Check that BDWPT nodes are valid
         if not all(isinstance(node, int) for node in self.grid_params['bdwpt_nodes']):
             raise ValueError("BDWPT nodes must be integers")
         
-        # Check penetration scenarios are valid percentages
         if not all(0 <= p <= 100 for p in self.penetration_scenarios):
             raise ValueError("Penetration scenarios must be between 0 and 100")
         
-        # Check time parameters
         if self.simulation_params['start_time'] >= self.simulation_params['end_time']:
             raise ValueError("Start time must be before end time")
         
-        # Check EV parameters
         if not 0 <= self.ev_params['initial_soc_mean'] <= 1:
             raise ValueError("Initial SOC mean must be between 0 and 1")
         

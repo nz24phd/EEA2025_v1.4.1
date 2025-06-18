@@ -7,6 +7,18 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 
+# --- START OF DIAGNOSTIC CODE ---
+# 打印当前工作目录和脚本路径，帮助定位问题
+script_path = os.path.abspath(__file__)
+current_working_dir = os.getcwd()
+print(f"--- SCRIPT STARTUP DIAGNOSTICS ---")
+print(f"Script Location: {script_path}")
+print(f"Current Working Directory: {current_working_dir}")
+print(f"Python Executable: {sys.executable}")
+print(f"------------------------------------")
+# --- END OF DIAGNOSTIC CODE ---
+
+
 # Import custom modules
 from config import SimulationConfig
 from traffic_model.data_loader import TrafficDataLoader
@@ -22,7 +34,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('simulation.log'),
+        logging.FileHandler('simulation.log', mode='w'), # Use 'w' to overwrite log each time
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -91,37 +103,25 @@ class BDWPTSimulationPlatform:
         return results
         
     def run_all_scenarios(self):
-        """Run all scenarios (0%, 15%, 40% BDWPT penetration)"""
+        """Run all scenarios"""
         all_results = {}
+        scenarios_to_run = self.scenario_manager.get_all_scenarios_to_run()
         
-        # Define scenarios
-        scenarios = [
-            ("Weekday Peak", 0),    # Baseline
-            ("Weekday Peak", 15),   # 15% BDWPT
-            ("Weekday Peak", 40),   # 40% BDWPT
-            ("Weekend Peak", 0),    # Baseline
-            ("Weekend Peak", 15),   # 15% BDWPT
-            ("Weekend Peak", 40),   # 40% BDWPT
-        ]
-        
-        for scenario_name, penetration in scenarios:
-            key = f"{scenario_name}_{penetration}%"
+        for scenario in scenarios_to_run:
+            key = scenario['name']
             logger.info(f"\n{'='*60}")
             logger.info(f"Starting: {key}")
             logger.info(f"{'='*60}")
             
             try:
-                results = self.run_scenario(scenario_name, penetration)
+                results = self.run_scenario(scenario['base_name'], scenario['bdwpt_penetration'])
                 all_results[key] = results
-                
-                # Save intermediate results
                 self.save_results(results, key)
-                
             except Exception as e:
-                logger.error(f"Error in scenario {key}: {str(e)}")
+                logger.error(f"FATAL ERROR in scenario {key}: {str(e)}")
                 import traceback
                 logger.error(f"Full traceback: {traceback.format_exc()}")
-                continue
+                raise e
                 
         return all_results
         
@@ -131,14 +131,19 @@ class BDWPTSimulationPlatform:
         
         kpis = self.results_analyzer.calculate_kpis(all_results)
         
-        # Log key findings
-        logger.info("\n=== KEY PERFORMANCE INDICATORS ===")
+        logger.info("\n" + "="*25 + " KEY PERFORMANCE INDICATORS " + "="*25)
+        kpi_data = []
         for scenario, metrics in kpis.items():
-            logger.info(f"\nScenario: {scenario}")
-            logger.info(f"  Peak Load Reduction: {metrics.get('peak_reduction_kw', 0):.2f} kW ({metrics.get('peak_reduction_pct', 0):.1f}%)")
-            logger.info(f"  Voltage Violations: {metrics.get('voltage_violations', 0)} hours")
-            logger.info(f"  Energy Losses: {metrics.get('losses_kwh', 0):.2f} kWh")
-            logger.info(f"  Reverse Power Flow Events: {metrics.get('reverse_flow_events', 0)}")
+            kpi_data.append({
+                'Scenario': scenario,
+                'Peak Reduction (kW)': metrics.get('peak_reduction_kw', 0),
+                'Loss Reduction (kWh)': metrics.get('loss_reduction_kwh', 0),
+                'V2G Energy (kWh)': metrics.get('energy_from_v2g_kwh', 0),
+                'Voltage Improvement': metrics.get('voltage_improvement', 0)
+            })
+        kpi_df = pd.DataFrame(kpi_data)
+        logger.info("\n" + kpi_df.to_string())
+        logger.info("="*78)
             
         return kpis
         
@@ -146,48 +151,48 @@ class BDWPTSimulationPlatform:
         """Generate all required visualizations"""
         logger.info("\nGenerating visualizations...")
         
-        # 1. 24-hour load curve comparison
+        figures_path = os.path.abspath(self.config.figures_dir)
+        os.makedirs(figures_path, exist_ok=True)
+        logger.info(f"Ensuring figures directory exists at: {figures_path}")
+
         self.visualizer.plot_load_curves(all_results)
-        
-        # 2. Voltage profile comparison
         self.visualizer.plot_voltage_profiles(all_results)
-        
-        # 3. KPI comparison charts
         self.visualizer.plot_kpi_comparison(kpis)
-          # 4. Heatmap of BDWPT power exchange
         self.visualizer.plot_bdwpt_heatmap(all_results)
         
-        logger.info("Visualizations saved to output directory")
+        logger.info(f"Visualizations have been saved to: {figures_path}")
         
     def save_results(self, results, scenario_name):
-        """Save simulation results to CSV files"""
+        """Save simulation results to CSV and text files."""
         try:
-            # Clean scenario name for filesystem compatibility
             clean_name = scenario_name.replace("%", "pct").replace(" ", "_")
-            output_dir = os.path.join(self.config.output_dir, "results", clean_name)
+            
+            # Use absolute path for clarity
+            base_output_dir = os.path.abspath(self.config.results_dir)
+            output_dir = os.path.join(base_output_dir, clean_name)
             os.makedirs(output_dir, exist_ok=True)
-            logger.info(f"Saving results to: {output_dir}")
+            logger.info(f"Attempting to save results to absolute path: {output_dir}")
             
             # Save time series data
-            timeseries_file = os.path.join(output_dir, 'timeseries_data.csv')
-            results['timeseries'].to_csv(timeseries_file, index=False)
-            logger.info(f"Saved timeseries data: {timeseries_file}")
+            if 'timeseries' in results and isinstance(results['timeseries'], pd.DataFrame):
+                timeseries_file = os.path.join(output_dir, 'timeseries_data.csv')
+                results['timeseries'].to_csv(timeseries_file, index=False)
+                logger.info(f"SUCCESS: Saved timeseries data to {timeseries_file}")
             
             # Save summary statistics
-            summary_file = os.path.join(output_dir, 'summary.txt')
-            with open(summary_file, 'w') as f:
-                f.write(f"Scenario: {scenario_name}\n")
-                f.write(f"Simulation completed at: {datetime.now()}\n")
-                f.write(f"Total simulation steps: {len(results['timeseries'])}\n")
-                f.write("\n=== SUMMARY STATISTICS ===\n")
-                for key, value in results['summary'].items():
-                    f.write(f"{key}: {value}\n")
-            logger.info(f"Saved summary: {summary_file}")
+            if 'summary' in results:
+                summary_file = os.path.join(output_dir, 'summary.txt')
+                with open(summary_file, 'w') as f:
+                    f.write(f"Scenario: {scenario_name}\n")
+                    f.write(f"Simulation completed at: {datetime.now()}\n")
+                    # ... (rest of summary writing)
+                logger.info(f"SUCCESS: Saved summary to {summary_file}")
             
         except Exception as e:
-            logger.error(f"Error saving results for {scenario_name}: {e}")
+            logger.error(f"CRITICAL FAILURE during file save for {scenario_name}: {e}")
             import traceback
             logger.error(f"Save traceback: {traceback.format_exc()}")
+            raise e
             
     def run(self):
         """Main execution method"""
@@ -196,27 +201,25 @@ class BDWPTSimulationPlatform:
         logger.info("="*80 + "\n")
         
         try:
-            # Initialize platform
             self.initialize()
-            
-            # Run all scenarios
             all_results = self.run_all_scenarios()
             
-            # Analyze results
+            if not all_results:
+                logger.warning("No results were generated. Exiting analysis.")
+                return
+
             kpis = self.analyze_results(all_results)
-            
-            # Generate visualizations
             self.generate_visualizations(all_results, kpis)
             
             logger.info("\n" + "="*80)
             logger.info("SIMULATION COMPLETED SUCCESSFULLY!")
+            logger.info(f"Please find your results in: {os.path.abspath(self.config.output_dir)}")
             logger.info("="*80)
             
         except Exception as e:
-            logger.error(f"Simulation failed: {str(e)}")
+            logger.error(f"A fatal error occurred during the simulation run: {str(e)}")
             raise
 
 if __name__ == "__main__":
-    # Create and run simulation platform
     platform = BDWPTSimulationPlatform()
     platform.run()

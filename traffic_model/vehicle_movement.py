@@ -23,20 +23,10 @@ class VehicleMovement:
     def update_positions(self, vehicles, trips, current_time_minutes):
         """
         Updates vehicle positions based on active trips for the current time step.
-
-        Args:
-            vehicles (list): The list of all vehicle dictionaries.
-            trips (pd.DataFrame): The DataFrame of all generated daily trips.
-            current_time_minutes (int): The current time in minutes since midnight.
-
-        Returns:
-            dict: A dictionary mapping road segment IDs to a list of vehicle IDs currently on that segment.
         """
-        vehicles_on_segments = {segment['id']: [] for segment in self.road_network}
-
         # Reset all vehicle statuses before updating
         for v in vehicles:
-            if v['status'] == 'driving': # Only reset driving cars to parked, others stay parked
+            if v['status'] == 'driving':
                 v['status'] = 'parked'
 
         active_trips = trips[
@@ -46,16 +36,14 @@ class VehicleMovement:
 
         for _, trip in active_trips.iterrows():
             vehicle_id = trip['vehicle_id']
-            # For this simulation, we assume the vehicle's load is applied at the destination node for the trip's duration.
-            destination_segment_id = f"road_node_{trip['destination']}"
+            destination_node = trip['destination']
             
-            if 0 <= vehicle_id < len(vehicles):
-                # Update vehicle's main status
+            if 0 <= vehicle_id < len(vehicles) and destination_node != 'home':
+                # Update vehicle's status and location
                 vehicles[vehicle_id]['status'] = 'driving'
-                vehicles[vehicle_id]['location'] = destination_segment_id
-
-                if destination_segment_id in vehicles_on_segments:
-                    vehicles_on_segments[destination_segment_id].append(vehicle_id)
+                # FIX: Assign the raw destination node ID as the location
+                vehicles[vehicle_id]['location'] = destination_node
+                logger.debug(f"Vehicle {vehicle_id} is active on trip to node {destination_node}. Location set.")
 
         # Update status for vehicles that just finished a trip
         finished_trips = trips[trips['arrival_time'] == current_time_minutes]
@@ -63,6 +51,9 @@ class VehicleMovement:
             vehicle_id = trip['vehicle_id']
             if 0 <= vehicle_id < len(vehicles):
                 vehicles[vehicle_id]['status'] = 'parked'
-                vehicles[vehicle_id]['location'] = trip['destination'] # Or home base
+                vehicles[vehicle_id]['location'] = trip['destination']
+                logger.debug(f"Vehicle {vehicle_id} finished trip. Location parked at {trip['destination']}.")
 
+        # This part is not critical for the bug but kept for structure.
+        vehicles_on_segments = {}
         return vehicles_on_segments

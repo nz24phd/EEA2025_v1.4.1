@@ -13,6 +13,8 @@ class TripGenerator:
     def __init__(self, config, data_loader=None):
         self.config = config
         self.data_loader = data_loader
+        self.road_network = self.data_loader.load_road_network()
+        self.nodes = self.road_network['nodes']
         
         # Trip purpose distribution (based on NZ Household Travel Survey)
         self.trip_purposes = {
@@ -175,24 +177,15 @@ class TripGenerator:
         return np.random.choice(purposes, p=probs)
         
     def _select_destination(self, purpose, current_location):
-        """Select destination based on trip purpose"""
-        destinations = {
-            'work': 'work',
-            'education': 'education',
-            'shopping': 'shopping',
-            'social': 'social',
-            'other': 'other'
-        }
-        
-        # Special rules
+        """Select destination based on trip purpose using network nodes."""
         if purpose == 'home':
             return 'home'
-        elif current_location == 'home' and purpose in destinations:
-            return destinations[purpose]
-        elif current_location != 'home' and np.random.random() < 0.4:
-            return 'home'  # 40% chance of returning home
-        else:
-            return destinations.get(purpose, 'other')
+
+        # Select a random node from the network, excluding the current location
+        possible_destinations = [n for n in self.nodes if n != current_location]
+        if not possible_destinations:
+             return current_location
+        return np.random.choice(possible_destinations)
             
     def _generate_departure_time(self, purpose, earliest_time, day_type):
         """Generate realistic departure time based on purpose"""

@@ -99,10 +99,8 @@ class TrafficModel:
 
     def get_bdwpt_vehicles_by_node(self, power_node):
         """Get BDWPT-equipped vehicles currently at a specific power grid node."""
-        target_segment_id = f"road_node_{power_node}"
-
         vehicles_at_node = [
             v for v in self.vehicles
-            if v.get('is_bdwpt_equipped') and v.get('location') == target_segment_id
+            if v.get('is_bdwpt_equipped') and v.get('location') == power_node
         ]
         return vehicles_at_node
